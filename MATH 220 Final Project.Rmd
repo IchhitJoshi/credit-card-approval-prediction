@@ -1,0 +1,527 @@
+---
+title: "MATH 220 Final: Predicting Credit Approval-> A Logistic Regression Project"
+author: "Ichhit Joshi"
+output:
+  html_document:
+    code_folding: hide
+    theme: darkly
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+    df_print: paged
+  pdf_document:
+    toc: yes
+date: "2022-12-16"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction to the Dataset
+
+This project is about answering the central question whether or not it is possible to predict whether or not a credit card applicant gets approved to get a credit card. Does the approval have anything to do with the applicant's gender, age, income, or if they have a driver's license? I will be answering this question and figure out what variables help in increasing the odds of success for approval.
+
+I got this dataset from Kaggle. 
+
+**Data source:** 
+
+<a href="https://www.kaggle.com/datasets/samuelcortinhas/credit-card-approval-clean-data?resource=download&select=clean_dataset.csv">Credit Card Approvals (Clean Data)</a>
+
+Now, let's begin!
+
+
+First, we will import all the required libraries and import the data set into a table called "Credit".
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+setwd("/Users/ichhit/Documents/DENISON/YEAR 2/SEM 1/MATH 220-01/Final Project")
+
+library(dplyr)
+library(ggplot2)
+library(car)
+library(leaps)
+library(rms)
+library(ResourceSelection)
+library(stringr)
+
+Credit <- read.csv("clean_dataset.csv")
+```
+
+
+## 2. Initial Data Exploration and Analysis
+
+
+Let's look at what our variables in the table are:
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+str(Credit)
+summary(Credit)
+```
+
+Most of the variables are pretty self-explanatory based on their names. But, here's what some of them mean:
+
+**Industry** : job sector of current or most recent job
+
+**Citizenship** : Citizenship, either ByBirth, ByOtherMeans or Temporary
+
+
+Here's what the categorical variables mean:
+
+**Gender:** <br>
+0 = Female <br>
+1 = Male
+
+**Married:** <br>
+0 = Single/Divorced
+1 = Married
+
+**BankCustomer:** <br>
+0 = No bank account
+1 = Bank account
+
+**PriorDefault:** means whether or not the customer has accounts go delinquent before submitting this credit card application <br>
+0 = no prior defaults <br>
+1 = prior default
+
+**Employed:** <br>
+0 = not employed <br>
+1 = employed
+
+**DriversLicense:** <br>
+0 = no license <br>
+1 = has license
+
+Also, looking at the summary, we don't have any NA values and we also don't seem to have any problematic values. So, we're good to start more exploring.
+
+The variable that we are trying to predict is Approved, which is either 0 or 1. 0 means not approved and 1 means approved for credit card. I will try to use all of the rest variables to predict Approved.
+
+
+First, let's make plot for all the variables against Approved to check if we can visually see any relationships.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(Gender, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+
+
+Credit %>% ggplot(aes(DriversLicense, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, Gender and DriversLicense seem to not have any relation with being approved.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(Age, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, as age increases, the odds of approval increases. So, older people seem to be more likely to be approved.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(Married, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+According to the plot, married people seem to have higher odds for approval.
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(BankCustomer, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, bank customers seem to have higher odds for approval.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(YearsEmployed, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, as the number of years employed of the applicant increases, the odds of approval increases. So, people that have been employed for a long time seem to be more likely to be approved.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(PriorDefault, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, applicants with prior default seem to have higher odds for approval.
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(Employed, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, employed applicants seem to have higher odds for approval than unemployed applicants.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(CreditScore, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, as the credit score of the applicant increases, the odds of approval increases. So, people that have a higher credit score to begin with seem to be more likely to be approved.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Credit %>% ggplot(aes(Income, Approved))+ geom_point() + stat_smooth(method = "glm",method.args = list(family= "binomial"))
+```
+
+According to the plot, as the income of the applicant increases, the odds of approval increases. So, people that have a higher income seem to be more likely to be approved.
+
+
+## 3. Splitting Dataset
+
+Before we even begin building a model, we need to split the Credit dataset. Since we have more than 200 observations, I will first split the dataset into 2 set: Train and Test. 
+
+The Train dataset will be used to train and build the logistic model and I will use the Test dataset to verify and test how good our trained model is.
+
+```{r}
+N <- seq(690)
+S <- sample(N,345)
+
+Train <- Credit[S,]
+Test <- Credit[-S,]
+
+#write.csv(Train, "/Users/ichhit/Documents/DENISON/YEAR 2/SEM 1/MATH 220-01/Final Project/Train.csv", row.names = FALSE)
+#write.csv(Test, "/Users/ichhit/Documents/DENISON/YEAR 2/SEM 1/MATH 220-01/Final Project/Test.csv", row.names = FALSE)
+
+
+Train <- read.csv("Train.csv")
+Test <- read.csv("Test.csv")
+
+```
+
+
+## 4. Model Building
+
+Since the variable that we are predicting is Approved, which is a binomial variable, we will be using a Logistic Regression model instead of a linear one.
+
+Now, we can start building our logistic model. First, I will use all of the variables and then one by one remove the ones that are highly insignificant. I won't be explaining all the coefficients right now and will be explaining it for the final model at the end. I will be keeping track of the AIC score and the Dxy score to see if our model is improving on the way.
+
+
+### **Logistic Model I: All Variables**
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg1 <- glm(Approved ~ Gender + Age + Debt + Married + BankCustomer + Industry + Ethnicity + YearsEmployed + PriorDefault + Employed + CreditScore + DriversLicense + Citizen + ZipCode + Income, Train, family = binomial)
+
+summary(CreditReg1)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ Gender + Age + + Debt + Married + BankCustomer + Industry + Ethnicity + YearsEmployed + PriorDefault + Employed + CreditScore + DriversLicense + Citizen + ZipCode + Income, Train)
+```
+
+**AIC SCORE: 269.84**
+
+**DXY: 0.844**
+
+
+
+### **Logistic Model II**
+
+First, we will remove the categorical variables, cause they all don't seem to be significant.
+
+
+Removed Industry, Ethnicity, and Citizen
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg2<- glm(Approved ~ Gender + Age + Debt + Married + BankCustomer + YearsEmployed + PriorDefault + Employed + CreditScore + DriversLicense + ZipCode + Income, Train, family = binomial)
+
+summary(CreditReg2)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ Gender + Age + Debt + Married + BankCustomer + YearsEmployed + PriorDefault + Employed + CreditScore + DriversLicense + ZipCode + Income, Train)
+```
+
+**AIC SCORE: 262.19 (DECREASED)**
+
+**DXY: 0.845 (INCREASED)**
+
+
+### **Logistic Model III**
+
+Now, I'll remove the variables with the highest p-value.
+
+Removed Married, BankCustomer, and Employed:
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg3<- glm(Approved ~ Gender + Age + Debt + YearsEmployed + PriorDefault + CreditScore + DriversLicense + ZipCode + Income, Train, family = binomial)
+
+summary(CreditReg3)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ Gender + Age + Debt + YearsEmployed + PriorDefault + CreditScore + DriversLicense + ZipCode + Income, Train)
+```
+
+**AIC SCORE: 257.98 (DECREASED)**
+
+**DXY: 0.840 (DECREASED)**
+
+
+### **Logistic Model IV**
+
+Removed Gender, Age, Debt:
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg4<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income + DriversLicense + ZipCode, Train, family = binomial)
+
+summary(CreditReg4)
+```
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income + DriversLicense + ZipCode, Train)
+```
+
+**AIC SCORE: 255.68 (DECREASED)**
+
+**DXY: 0.827 (DECREASED)**
+
+
+### **Logistic Model V**
+
+Removed DriversLicense and ZipCode:
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg5<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Train, family = binomial)
+
+summary(CreditReg5)
+```
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Train)
+```
+
+**AIC SCORE: 255.1 (DECREASED)**
+
+**DXY: 0.826 (DECREASED)**
+
+
+We can notice that as we removed the variables, our AIC Score was constantly decreasing and our Dxy value also didn't change much. I will be explaining all of the important coefficents shortly. But our simple model is ready and all of the p-values for the variables are now very significant, < 0.05 and our Dxy value is also very high. So, things are looking pretty good for the model.
+
+
+## 5. Adding Quadratic Terms or Interaction Terms
+
+Now, I will decide if we need to add any squared terms or interaction terms.
+
+For this, I will run the model again with the squared terms for all the variables except the binomial variable which is PriorDefault.
+
+
+### **Logistic Model VI**
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg6<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income + I(YearsEmployed^2) +  + I(CreditScore^2) + I(Income^2), Train, family = binomial)
+
+summary(CreditReg6)
+```
+
+Looking at the p-value, I don't think it's a good idea to add any squared terms as they aren't much significant.
+
+
+Now, I will run the model again with the interaction terms for all the variables except the binomial variable which is PriorDefault.
+
+### **Logistic Model VII**
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditReg7<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income  + I(CreditScore*YearsEmployed) +  I(YearsEmployed*Income) + I(CreditScore*Income), Train, family = binomial)
+
+summary(CreditReg7)
+```
+
+Looks like the interaction terms are also not that significant. So, let's just stick with the simple model.
+
+## 6. Final Model Explanation
+
+Now, we have finalized our model and it's finally time to explain what the coefficients mean for our model:
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditRegFinal<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Train, family = binomial)
+
+summary(CreditRegFinal)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Train)
+```
+
+Here, we are looking at the relationship between Approved and YearsEmployed, PriorDefault, CreditScore, and Income. To come to a conclusion, we need to look at some of the values.
+
+
+**YearsEmployed**
+
+The coefficient of YearsEmployed shows a value of 0.1252063 with a small p-value of 0.04654, which is less than our significance level of 0.05. 
+
+The coefficient estimate of the variable YearsEmployed is positive. This means that an increase in YearsEmployed will be associated with a increased probability of Approved. So, this means people with more employment experience have a higher chance of being approved for a credit card.
+
+The regression coefficient for YearsEmployed is 0.1252063. This indicates that one year increase in YearsEmployed will increase the odds of approval by a factor of exp(0.1252063) = 1.13.
+
+**PriorDefault**
+
+The coefficient of PriorDefault shows a value of 2.9006733 with a small p-value of 4.08e-16, which is less than our significance level of 0.05. 
+
+The coefficient estimate of the variable PriorDefault is positive. This means that an increase in PriorDefault will be associated with a increased probability of Approved. PriorDefault has only 2 values -> 0 and 1. 0 means no prior defaults and 1 means prior default. So, this means applicants with a prior default have higher probabilty of Approved than one with no prior defaults according to the model.
+
+The regression coefficient for PriorDefault is 2.9006733. This indicates that one unit increase in PriorDefault (meaning having prior default) will increase the odds of survival by a factor of exp(2.9006733) = 18.18. So, applicants with a prior default are 18.18 times more likely to be approved than ones with no prior defaults in general. 
+
+**CreditScore**
+
+The coefficient of CreditScore shows a value of 0.1985427 with a small p-value of 0.00167, which is less than our significance level of 0.05. 
+
+The coefficient estimate of the variable CreditScore is positive. This means that an increase in CreditScore will be associated with a increased probability of Approved. 
+
+The regression coefficient for CreditScore is 0.1985427. This indicate that one unit increase in CreditScore will increase the odds of survival by a factor of exp(0.1985427) = 1.22.
+
+
+**Income**
+
+The coefficient of Income shows a value of 0.0005289 with a small p-value of 0.00671, which is less than our significance level of 0.05. 
+
+The coefficient estimate of the variable Income is positive. This means that an increase in Income will be associated with a increased probability of Approved. 
+
+The regression coefficient for Income is 0.0005289. This indicate that one unit increase in Income will increase the odds of survival by a factor of exp(0.0005289) = 1.0005.
+
+
+The logistic equation for the model can be written as:
+
+p = exp(-2.7598055 +  0.1252063 * YearsEmployed + 2.9006733 * PriorDefault + 0.1985427 * CreditScore + 0.0005289 * Income)/ [1 + exp(-2.7598055 + 0.1252063 * YearsEmployed + 2.9006733 * PriorDefault + 0.1985427 * CreditScore + 0.0005289 * Income)]
+
+We also want to make sure the Residual deviance is less as possible and is less than degrees of freedom. In this case, the Residual deviance is 245.10 and the dof is 340. The Residual deviance is less than dof, which is great!
+
+The Dxy value = (num of good pairs - num of bad pairs) / num of total pairs. It ranges from 0 to 1. It is similar to the R-squared value. The higher it is, the better.
+
+The Dxy value is 0.826, which means that the model explains 82.6% of the variance in our data. This is a great value for a model.
+
+
+## 7. Model Validation
+
+Now, we can move on to validating our model. 
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Train <- Train %>% mutate(res = resid(CreditRegFinal),fit = fitted.values(CreditRegFinal))
+
+Train %>% ggplot(aes(fit,res)) + geom_point()
+
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+Train %>% ggplot(aes(res)) + geom_histogram(binwidth = 0.3)
+
+```
+```{r message=FALSE, warning=FALSE, include=TRUE}
+shapiro.test(CreditRegFinal$residuals)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+hoslem.test(Train$Approved,Train$fit,g = 5)
+```
+
+From the residual histogram, we can see that the residuals almost seem to be fairly normally distributed about 0.
+
+The Shapiro-Wilk normality test has the null hypothesis that the “sample residuals is normal”. If the test is significant, the distribution is non-normal. From the output, we can see that the p-value is < 2.2e-16 < 0.05 implying that the distribution of the data are significantly different from normal distribution. In other words, we might not be able to assume the normality of the residuals. But, since the Shapiro-Wilk test is appropriate for smaller sample sizes, it might not be accurate for our large sample size of 345.
+
+Looking at the hoslem test, the null hypothesis is that data in each cell is binomial. <br>
+The null hypothesis for the test is that the data is binomial. <br>
+Our p-value is 0.1263, which is pretty high. So, we fail to reject the null. This means it is consistent with binomiality. This is a great thing!
+
+So, in conclusion, our model has been validated and it looks good!
+
+## 8. Coefficient Confidence Interval
+
+
+We are now making odds confidence interval for all coefficients of variables at 90% significance level.
+
+**YearsEmployed variable:**
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+exp(0.1252063 - qnorm(0.95)*0.0629018)
+
+exp(0.1252063  + qnorm(0.95)*0.0629018)
+```
+
+If the applicant's number of years employment increases by 1 year, their odds of approval go up by a factor ranging from 1.02198 to 1.2569.
+
+**PriorDefault variable:**
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+exp(2.9006733 - qnorm(0.95)*0.3565134)
+
+exp(2.9006733 + qnorm(0.95)*0.3565134)
+```
+
+If the applicant has a prior default, their odds of approval go up by a factor ranging from 10.11744 to 32.69054.
+
+**CreditScore variable:**
+```{r message=FALSE, warning=FALSE, include=TRUE}
+exp(0.1985427 - qnorm(0.95)*0.0631742)
+
+exp(0.1985427 + qnorm(0.95)*0.0631742)
+```
+
+If the applicant's credit score increases by 1, their odds of approval go up by a factor ranging from 1.099252 to 1.353177.
+
+**Income variable:**
+```{r message=FALSE, warning=FALSE, include=TRUE}
+exp(0.0005289 - qnorm(0.95)*0.0001951)
+
+exp(0.0005289 + qnorm(0.95)*0.0001951)
+```
+
+If the applicant's income increases by 1, their odds of approval go up by a factor ranging from 1.000208 to 1.00085.
+
+
+We can see that PriorDefault is the variable that has the most impact in the odds of approval. 
+
+## 9. Making Predictions
+
+Now that the model has been validated, we can make some predictions for the Test dataset to see if our model can correctly predict if an applicant has been approved or not.
+
+I will be adding the predicted values from the predict function as a new column for Test. If the prediction i.e. odds of approval is > 0.5, I will consider that as Approved(1) and if it's < 0.5, I will consider that as not approved(0).
+
+Then, to see how our model performed for the test data set, I will see how many of the predicted approvals actually matched the actual approval in the test data. This way we can see how successful our model was in predicting approval.
+
+
+```{r}
+p <- predict(CreditRegFinal, Test,  type = "response")
+Test <- Test %>% mutate(Prediction = ifelse(p>0.5,1,0))
+
+Test <- Test %>% mutate(Prediction == Approved)
+
+
+correct <- nrow(Test[Test$`Prediction == Approved` == "TRUE",])
+wrong <- nrow(Test[Test$`Prediction == Approved` == "FALSE",])
+
+success <- correct/(correct + wrong)
+success
+```
+
+Now, we know that our model successfully predicted 86.38% of the observations in the test data set. This is great!
+
+
+Let's also use the Test data in our model to see how it did:
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+CreditRegTest<- glm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Test, family = binomial)
+
+summary(CreditRegTest)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+lrm(Approved ~ YearsEmployed + PriorDefault + CreditScore + Income, Test)
+```
+
+We can see that for our Test data set, the YearsEmployed seems to be insignificant. Also, our Dxy score has increased and AIC has greatly decreased compared to the Train data. So, this means our model is still great!
+
+
+## 10. Conclusion
+
+In conclusion, our model was really successful in predicting who gets approved for a credit card and I am very happy with results. We have now discovered that according to our model, an applicant needs to have the following in order to have higher odds of approval for credit card : <br>
+
+1. Many years of employment <br>
+2. A prior default, which means the applicant has accounts go delinquent before submitting this credit card application <br>
+3. High credit score <br>
+4. High source of income
+
+
+
